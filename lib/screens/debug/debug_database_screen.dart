@@ -4,6 +4,8 @@ import 'package:fraudguard_pay/database/database_helper.dart';
 import 'package:fraudguard_pay/models/contact_model.dart';
 import 'package:fraudguard_pay/models/message_model.dart';
 import 'package:fraudguard_pay/models/transaction_model.dart';
+import 'package:fraudguard_pay/utils/settings_manager.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Debug Database Admin Screen
 /// Access via: DebugDatabaseScreen() or through a hidden route
@@ -847,6 +849,108 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          // --- Settings Section ---
+          Card(
+            color: cardBg,
+            margin: const EdgeInsets.only(bottom: 16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '⚙️ Fraud Detection Settings',
+                    style: TextStyle(
+                      color: accentOrange,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Enable fraud check',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      FutureBuilder<bool>(
+                        future: SettingsManager.isFraudCheckEnabled(),
+                        builder: (context, snapshot) {
+                          final enabled = snapshot.data ?? true;
+                          return Switch(
+                            value: enabled,
+                            onChanged: (value) async {
+                              await SettingsManager.setFraudCheckEnabled(value);
+                              setState(() {});
+                            },
+                            activeColor: accentOrange,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          decoration: const InputDecoration(
+                            labelText: 'API Endpoint URL',
+                            labelStyle: TextStyle(color: textSecondary),
+                            hintText: 'http://10.0.2.2:8000/api/predict/',
+                          ),
+                          style: const TextStyle(color: Colors.white),
+                          onChanged: (value) async {
+                            if (value.isNotEmpty) {
+                              await SettingsManager.setApiEndpoint(value);
+                              setState(() {});
+                            }
+                          },
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, color: Colors.white),
+                        onPressed: () async {
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.remove('api_endpoint');
+                          setState(() {});
+                        },
+                        tooltip: 'Reset to default',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  FutureBuilder<String>(
+                    future: SettingsManager.getApiEndpoint(),
+                    builder: (context, snapshot) {
+                      final endpoint = snapshot.data ?? 'Loading...';
+                      return Text(
+                        'Current endpoint: $endpoint',
+                        style: const TextStyle(
+                          color: textSecondary,
+                          fontSize: 12,
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                  FutureBuilder<String>(
+                    future: SettingsManager.getBaseUrlFromEndpoint(),
+                    builder: (context, snapshot) {
+                      final baseUrl = snapshot.data ?? 'Loading...';
+                      return Text(
+                        'Base URL for health check: $baseUrl',
+                        style: const TextStyle(
+                          color: textSecondary,
+                          fontSize: 11,
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(

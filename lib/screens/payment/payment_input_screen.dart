@@ -5,6 +5,10 @@ import 'package:fraudguard_pay/config/theme.dart';
 import 'package:fraudguard_pay/models/contact_model.dart';
 import 'upi_pin_screen.dart';
 
+import 'package:fraudguard_pay/services/fraud_api_service.dart';
+import 'package:fraudguard_pay/utils/settings_manager.dart';
+import 'package:fluttertoast/fluttertoast.dart';
+
 class PaymentInputScreen extends StatefulWidget {
   final Contact contact;
   final String amount;
@@ -116,20 +120,210 @@ class _PaymentInputScreenState extends State<PaymentInputScreen> {
                 child: SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () {
-                      if (_amountController.text.isNotEmpty) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder:
-                                (_) => UpiPinScreen(
-                                  contact: widget.contact,
-                                  amount: _amountController.text,
-                                  note: _noteController.text,
-                                ),
-                          ),
+                    onPressed: () async {
+                      final amountText = _amountController.text;
+                      if (amountText.isEmpty) return;
+
+                      final amount = double.tryParse(amountText) ?? 0.0;
+                      if (amount <= 0) {
+                        Fluttertoast.showToast(
+                          msg: 'Please enter a valid amount',
                         );
+                        return;
                       }
+
+                      // Check if fraud detection is enabled
+                      final fraudCheckEnabled =
+                          await SettingsManager.isFraudCheckEnabled();
+                      if (fraudCheckEnabled) {
+                        // Show loading indicator
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder:
+                              (_) => const Center(
+                                child: CircularProgressIndicator(),
+                              ),
+                        );
+
+                        try {
+                          // Prepare data for API (you need to compute/send required features)
+                          final transactionData = {
+                            'user_id':
+                                'CUST_019998', // Replace with actual logged-in user ID
+                            'merchant_vpa': widget.contact.vpa,
+                            'device_id':
+                                'DEV_035189', // Replace with actual device fingerprint
+                            'amount': amount,
+                            'timestamp': DateTime.now().toIso8601String(),
+                            'user_location':
+                                'Home', // Replace with actual location or customer home
+                            'network_type': '4G', // Replace with actual network
+                          };
+                          // In a real app, you'd collect all 22 features from database.
+                          // For demo, we assume the API will compute missing features or use defaults.
+                          final api = FraudApiService();
+                          final result = await api.checkTransaction(
+                            transactionData,
+                          );
+                          Navigator.pop(context); // dismiss loader
+
+                          if (result['success'] == true) {
+                            final decision = result['decision'];
+                            final riskScore = result['risk_score'];
+                            final reasons = result['reasons'] as List? ?? [];
+
+                            if (decision == 'FRAUD' || riskScore >= 0.7) {
+                              // High risk – block transaction, show details
+                              await showDialog(
+                                context: context,
+                                builder:
+                                    (_) => AlertDialog(
+                                      title: Row(
+                                        children: const [
+                                          Icon(
+                                            Icons.warning,
+                                            color: Colors.red,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text('High Risk Transaction'),
+                                        ],
+                                      ),
+                                      content: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Risk Score: ${(riskScore * 100).toStringAsFixed(1)}%',
+                                          ),
+                                          const SizedBox(height: 8),
+                                          const Text(
+                                            'Reasons:',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          ...reasons.map(
+                                            (r) => Padding(
+                                              padding: const EdgeInsets.only(
+                                                left: 8,
+                                                top: 4,
+                                              ),
+                                              child: Text(
+                                                '• ${r['label']}: ${r['value']}',
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed:
+                                              () => Navigator.pop(context),
+                                          child: const Text(
+                                            'OK',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                              );
+                              return; // Block payment
+                            } else if (decision == 'REVIEW') {
+                              // Medium risk – show warning with option to continue
+                              final continuePayment = await showDialog<bool>(
+                                context: context,
+                                builder:
+                                    (_) => AlertDialog(
+                                      title: const Text(
+                                        '⚠️ Suspicious Transaction',
+                                      ),
+                                      content: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Risk Score: ${(riskScore * 100).toStringAsFixed(1)}%',
+                                          ),
+                                          const SizedBox(height: 8),
+                                          const Text(
+                                            'This transaction has some risk factors:',
+                                          ),
+                                          ...reasons.map(
+                                            (r) => Padding(
+                                              padding: const EdgeInsets.only(
+                                                left: 8,
+                                                top: 4,
+                                              ),
+                                              child: Text(
+                                                '• ${r['label']}: ${r['value']}',
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          const Text(
+                                            'Do you still want to proceed?',
+                                          ),
+                                        ],
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed:
+                                              () =>
+                                                  Navigator.pop(context, false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        ElevatedButton(
+                                          onPressed:
+                                              () =>
+                                                  Navigator.pop(context, true),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                          child: const Text('Proceed Anyway'),
+                                        ),
+                                      ],
+                                    ),
+                              );
+                              if (continuePayment != true) return;
+                            } else {
+                              // Low risk – show toast and proceed
+                              Fluttertoast.showToast(
+                                msg: '✅ Low risk transaction, proceeding...',
+                              );
+                            }
+                          } else {
+                            Navigator.pop(context);
+                            Fluttertoast.showToast(
+                              msg: 'Fraud check failed: ${result['error']}',
+                            );
+                            return;
+                          }
+                        } catch (e) {
+                          Navigator.pop(context);
+                          Fluttertoast.showToast(
+                            msg: 'Error connecting to fraud service: $e',
+                          );
+                          return;
+                        }
+                      }
+
+                      // If fraud check disabled or passed, go to PIN screen
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (_) => UpiPinScreen(
+                                contact: widget.contact,
+                                amount: amountText,
+                                note: _noteController.text,
+                              ),
+                        ),
+                      );
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blueAccent,
