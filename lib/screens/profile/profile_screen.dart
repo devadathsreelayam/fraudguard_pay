@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:fraudguard_pay/database/database_helper.dart';
+import 'package:fraudguard_pay/services/user_manager.dart';
 import 'package:fraudguard_pay/widgets/theme.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:fraudguard_pay/screens/debug/debug_database_screen.dart';
@@ -6,8 +8,42 @@ import 'package:fraudguard_pay/services/fraud_api_service.dart';
 import 'package:fraudguard_pay/utils/settings_manager.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  String _userName = 'User';
+  String _userVpa = 'user@fgpay';
+  String _userPhone = '+91 0000000000';
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final name = await UserManager.getUserName();
+    final vpa = await UserManager.getUserVpa();
+    final phone = await UserManager.getUserPhone();
+
+    setState(() {
+      _userName = name;
+      _userVpa = vpa;
+      _userPhone = phone;
+      _isLoading = false;
+    });
+  }
+
+  String getInitials() {
+    if (_userName == 'User') return 'U';
+    return _userName.substring(0, 1).toUpperCase();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,16 +78,16 @@ class ProfileScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        "User Name",
+                      Text(
+                        _userName,
                         style: TextStyle(
                           color: textPrimary,
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const Text(
-                        "+91 9988774455",
+                      Text(
+                        _userPhone,
                         style: TextStyle(color: textSecondary, fontSize: 14),
                       ),
                       const SizedBox(height: 8),
@@ -121,12 +157,51 @@ class ProfileScreen extends StatelessWidget {
                   );
                 }),
                 const SizedBox(height: 20),
-                _buildProfileTile(
-                  Icons.logout,
-                  "Sign Out",
-                  () {},
-                  isDestructive: true,
-                ),
+                // In ProfileScreen, update the logout button:
+                _buildProfileTile(Icons.logout, "Sign Out", () async {
+                  // Show confirmation dialog
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder:
+                        (context) => AlertDialog(
+                          title: const Text('Sign Out'),
+                          content: const Text(
+                            'Are you sure you want to sign out?',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text('Cancel'),
+                            ),
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(context, true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                              ),
+                              child: const Text('Sign Out'),
+                            ),
+                          ],
+                        ),
+                  );
+
+                  if (confirm == true) {
+                    // Clear all user data
+                    await UserManager.logout();
+
+                    // Clear all cached data from database
+                    // final dbHelper = DatabaseHelper();
+                    // await dbHelper.clearAllData();
+
+                    // Navigate to login screen and remove all previous routes
+                    if (context.mounted) {
+                      Navigator.pushNamedAndRemoveUntil(
+                        context,
+                        'login',
+                        (route) => false,
+                      );
+                    }
+                  }
+                }, isDestructive: true),
               ],
             ),
           ),

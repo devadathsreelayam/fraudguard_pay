@@ -24,24 +24,45 @@ class _MoneyScreenState extends State<MoneyScreen> {
   @override
   void initState() {
     super.initState();
-    _loadContacts();
+    _loadData();
   }
 
-  Future<void> _loadContacts() async {
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+
     final dbHelper = DatabaseHelper();
     final contacts = await dbHelper.getContacts();
     final transactions = await dbHelper.getTransactions();
 
+    // Build map of localId -> Contact
+    final Map<int, Contact> contactsMap = {};
+    for (var c in contacts) {
+      if (c.localId != null) {
+        contactsMap[c.localId!] = c;
+      }
+    }
+
     setState(() {
-      _contactsMap = {for (var c in contacts) c.id!: c};
+      _contactsMap = contactsMap;
       _transactions = transactions;
       _isLoading = false;
     });
   }
 
   Future<void> _refreshData() async {
-    await _loadContacts();
-    setState(() {}); // Force UI rebuild to show new transactions
+    await _loadData();
+  }
+
+  double _getTodaySpent() {
+    final today = DateTime.now();
+    final startOfDay = DateTime(today.year, today.month, today.day);
+
+    return _transactions
+        .where(
+          (txn) =>
+              txn.isSent && txn.isSuccess && txn.timestamp.isAfter(startOfDay),
+        )
+        .fold(0.0, (sum, txn) => sum + txn.amount);
   }
 
   @override
@@ -75,7 +96,7 @@ class _MoneyScreenState extends State<MoneyScreen> {
                         builder: (_) => const TransactionHistoryScreen(),
                       ),
                     );
-                    _refreshData(); // Add this
+                    _refreshData();
                   },
                   child: const Text(
                     "See All",
@@ -97,6 +118,8 @@ class _MoneyScreenState extends State<MoneyScreen> {
   }
 
   Widget _buildSpendingCard(BuildContext context) {
+    final todaySpent = _getTodaySpent();
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -113,9 +136,9 @@ class _MoneyScreenState extends State<MoneyScreen> {
             style: TextStyle(color: textSecondary, fontSize: 14),
           ),
           const SizedBox(height: 8),
-          const Text(
-            "₹1,420.00",
-            style: TextStyle(
+          Text(
+            "₹${todaySpent.toStringAsFixed(2)}",
+            style: const TextStyle(
               color: textPrimary,
               fontSize: 28,
               fontWeight: FontWeight.bold,
@@ -127,10 +150,11 @@ class _MoneyScreenState extends State<MoneyScreen> {
           InkWell(
             onTap: () async {
               final dummyContact = Contact(
-                id: null, // Use null, not -1
                 name: "Bank Verification",
                 vpa: "bank@upi",
                 phone: "986532875",
+                isMerchant: true,
+                isVerified: true,
               );
               await Navigator.push(
                 context,
@@ -141,6 +165,7 @@ class _MoneyScreenState extends State<MoneyScreen> {
                         amount: "0",
                         note: "",
                         isCheckingBalance: true,
+                        transaction: null,
                       ),
                 ),
               );
@@ -172,12 +197,10 @@ class _MoneyScreenState extends State<MoneyScreen> {
       );
     }
 
-    // Get the 4 most recent transactions from _transactions
+    // Get the 4 most recent transactions
     final List<Transaction> recentTransactions =
         _transactions.toList()
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-    // Take only the top 4
     final displayList = recentTransactions.take(4).toList();
 
     return Container(
@@ -205,13 +228,35 @@ class _MoneyScreenState extends State<MoneyScreen> {
                         const Divider(color: Colors.white10, height: 1),
                 itemBuilder: (context, index) {
                   final txn = displayList[index];
-
-                  // Map the Transaction object to the UI
-                  bool isReceived = txn.type == "Money Received";
-                  int displayContactId =
+                  final isReceived = txn.isReceived;
+                  final displayContactId =
                       isReceived ? txn.senderContactId : txn.recipientContactId;
-                  String displayName =
-                      _contactsMap[displayContactId]?.name ?? "Unknown";
+
+                  Contact? contact = _contactsMap[displayContactId];
+                  String displayName = contact?.name ?? "Unknown";
+                  String displayVpa = contact?.vpa ?? "";
+
+                  // If contact not found, try to get by djangoId or use VPA
+                  if (contact == null && displayContactId > 0) {
+                    displayName = "User $displayContactId";
+                  }
+
+                  // Determine status display
+                  String statusText = "";
+                  Color statusColor = Colors.transparent;
+                  if (txn.isPending) {
+                    statusText = "Pending";
+                    statusColor = Colors.orange;
+                  } else if (txn.isFailed) {
+                    statusText = "Failed";
+                    statusColor = Colors.redAccent;
+                  } else if (txn.isFraud) {
+                    statusText = "Blocked";
+                    statusColor = Colors.redAccent;
+                  } else if (txn.isReview) {
+                    statusText = "Flagged";
+                    statusColor = Colors.orange;
+                  }
 
                   return ListTile(
                     leading: CircleAvatar(
@@ -231,31 +276,57 @@ class _MoneyScreenState extends State<MoneyScreen> {
                       displayName,
                       style: const TextStyle(color: textPrimary, fontSize: 15),
                     ),
-                    subtitle: Text(
-                      DateFormat('dd MMM, hh:mm a').format(txn.timestamp),
-                      style: const TextStyle(
-                        color: textSecondary,
-                        fontSize: 12,
-                      ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (displayVpa.isNotEmpty)
+                          Text(
+                            displayVpa,
+                            style: const TextStyle(
+                              color: textSecondary,
+                              fontSize: 10,
+                            ),
+                          ),
+                        Text(
+                          DateFormat('dd MMM, hh:mm a').format(txn.timestamp),
+                          style: const TextStyle(
+                            color: textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
                     ),
                     trailing: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          "${isReceived ? '+' : ''}₹${txn.amount}",
+                          "${isReceived ? '+' : '-'}₹${txn.amount.toStringAsFixed(2)}",
                           style: TextStyle(
                             color:
                                 isReceived ? Colors.greenAccent : textPrimary,
                             fontWeight: FontWeight.bold,
+                            fontSize: 15,
                           ),
                         ),
-                        if (txn.status == "Failed")
-                          const Text(
-                            "Failed",
-                            style: TextStyle(
-                              color: Colors.redAccent,
-                              fontSize: 10,
+                        if (statusText.isNotEmpty)
+                          Container(
+                            margin: const EdgeInsets.only(top: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              statusText,
+                              style: TextStyle(
+                                color: statusColor,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
                       ],
@@ -287,7 +358,12 @@ class _MoneyScreenState extends State<MoneyScreen> {
           style: TextStyle(color: textSecondary, fontSize: 12),
         ),
         trailing: const Icon(Icons.chevron_right, color: textSecondary),
-        onTap: () {},
+        onTap: () {
+          // TODO: Implement credit score check
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text("Coming soon!")));
+        },
       ),
     );
   }

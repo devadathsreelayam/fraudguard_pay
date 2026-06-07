@@ -5,6 +5,7 @@ import 'package:fraudguard_pay/screens/contacts/contacts_screen.dart';
 import 'package:fraudguard_pay/screens/money/history/transaction_history_screen.dart';
 import 'package:fraudguard_pay/screens/qr_scanner/qr_scanner_screen.dart';
 import 'package:fraudguard_pay/screens/fraud/fraudguard_summary_screen.dart';
+import 'package:fraudguard_pay/services/user_manager.dart';
 
 /// Home/Dashboard screen showing user balance, quick actions, and contacts.
 /// Flows: Main Navigation → Home Screen (entry point of app) → {Money, Contacts, QR Scanner, Fraud Guard}
@@ -17,6 +18,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final ScrollController _scrollController = ScrollController();
+  String _userName = "User";
+  String _userVpa = "user@fgpay";
   bool _isFabVisible = true;
   bool _isPeopleExpanded = false;
   bool _isBusinessExpanded = false;
@@ -24,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _loadUserName();
     _scrollController.addListener(() {
       if (_scrollController.position.pixels > 50) {
         if (_isFabVisible) setState(() => _isFabVisible = false);
@@ -37,6 +41,15 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadUserName() async {
+    final name = await UserManager.getUserName();
+    final vpa = await UserManager.getUserVpa();
+    setState(() {
+      _userName = name;
+      _userVpa = vpa;
+    });
   }
 
   @override
@@ -96,9 +109,9 @@ class _HomeScreenState extends State<HomeScreen> {
               Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
+                children: [
                   Text(
-                    "Hey, User",
+                    "Hey, $_userName",
                     style: TextStyle(
                       color: textPrimary,
                       fontSize: 18,
@@ -106,7 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   Text(
-                    "user@fgpay",
+                    _userVpa,
                     style: TextStyle(color: textSecondary, fontSize: 13),
                   ),
                 ],

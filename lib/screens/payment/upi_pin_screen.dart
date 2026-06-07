@@ -1,21 +1,28 @@
+// upi_pin_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:fraudguard_pay/database/database_helper.dart';
 import 'package:fraudguard_pay/models/contact_model.dart';
+import 'package:fraudguard_pay/models/transaction_model.dart';
+import 'package:fraudguard_pay/services/api_service.dart';
+import 'package:fraudguard_pay/services/user_manager.dart';
 import 'payment_success_screen.dart';
 
 class UpiPinScreen extends StatefulWidget {
   final Contact contact;
   final String amount;
   final String note;
-  final bool isCheckingBalance; // Add this flag
+  final bool isCheckingBalance;
+  final Transaction? transaction;
 
   const UpiPinScreen({
     super.key,
     required this.contact,
     required this.amount,
     required this.note,
-    this.isCheckingBalance = false, // Default is false (payment mode)
+    this.isCheckingBalance = false,
+    this.transaction,
   });
 
   @override
@@ -23,24 +30,23 @@ class UpiPinScreen extends StatefulWidget {
 }
 
 class _UpiPinScreenState extends State<UpiPinScreen> {
-  // final TextEditingController _pinController = TextEditingController();
   String _pin = "";
   int _attempts = 0;
   final int _maxAttempts = 3;
+  final DatabaseHelper _dbHelper = DatabaseHelper();
+  final ApiService _api = ApiService();
+  bool _isProcessing = false;
 
   void _onKeyTap(String value) {
-    if (_pin.length < 4) {
+    if (_pin.length < 4 && !_isProcessing) {
       setState(() {
         _pin += value;
       });
-      // if (_pin.length == 4) {
-      //   _handleVerification();
-      // }
     }
   }
 
   void _onBackspace() {
-    if (_pin.isNotEmpty) {
+    if (_pin.isNotEmpty && !_isProcessing) {
       setState(() {
         _pin = _pin.substring(0, _pin.length - 1);
       });
@@ -48,33 +54,36 @@ class _UpiPinScreenState extends State<UpiPinScreen> {
   }
 
   void _onOk() {
-    if (_pin.length == 4) {
+    if (_pin.length == 4 && !_isProcessing) {
       _handleVerification();
-    } else {
+    } else if (_pin.length != 4) {
       Fluttertoast.showToast(msg: "Please enter a 4-digit PIN");
     }
   }
 
-  void _handleVerification() async {
+  Future<void> _handleVerification() async {
     if (_pin == "1234") {
-      // Correct PIN Logic
+      setState(() => _isProcessing = true);
+
       await Future.delayed(const Duration(seconds: 1));
+
       if (!mounted) return;
 
       if (widget.isCheckingBalance) {
         _showBalanceWindow();
       } else {
-        _navigateToSuccess();
+        await _handleSuccessfulPayment();
       }
+
+      setState(() => _isProcessing = false);
     } else {
-      // Incorrect PIN Logic
       _attempts++;
       int remaining = _maxAttempts - _attempts;
 
       if (_attempts >= _maxAttempts) {
-        _handleFinalFailure();
+        await _handleFinalFailure();
       } else {
-        setState(() => _pin = ""); // Clear dots
+        setState(() => _pin = "");
         Fluttertoast.showToast(
           msg: "Incorrect PIN. $remaining attempts left.",
           backgroundColor: Colors.red,
@@ -84,43 +93,140 @@ class _UpiPinScreenState extends State<UpiPinScreen> {
     }
   }
 
-  void _handleFinalFailure() {
-    Fluttertoast.showToast(
-      msg: "Too many failed attempts. Transaction failed.",
-    );
+  Future<void> _handleSuccessfulPayment() async {
+    try {
+      final userId = await UserManager.getCustomerId();
 
-    // If checking balance, just go back. If payment, you could go to a Failure Screen.
-    if (widget.isCheckingBalance) {
-      Navigator.pop(context);
-    } else {
-      // Option A: Just go back to the previous screen
-      Navigator.pop(context);
+      if (widget.transaction != null) {
+        await _api.updateTransactionStatus(
+          transactionId: widget.transaction!.id,
+          status: Transaction.STATUS_SUCCESS,
+          userId: userId ?? '',
+        );
+
+        final updatedTransaction = widget.transaction!.copyWith(
+          status: Transaction.STATUS_SUCCESS,
+          syncStatus: Transaction.SYNC_SYNCED,
+        );
+
+        await _dbHelper.updateTransaction(updatedTransaction);
+
+        await _navigateToSuccess(updatedTransaction);
+      } else {
+        await _navigateToLegacySuccess();
+      }
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Error updating transaction: $e');
+      setState(() => _isProcessing = false);
     }
   }
 
-  void _navigateToSuccess() async {
-    // Ensure contact has an ID before proceeding
+  Future<void> _handleFinalFailure() async {
+    setState(() => _isProcessing = true);
+
+    try {
+      if (widget.transaction != null && !widget.isCheckingBalance) {
+        final userId = await UserManager.getCustomerId();
+
+        await _api.updateTransactionStatus(
+          transactionId: widget.transaction!.id,
+          status: Transaction.STATUS_FAILED,
+          userId: userId ?? '',
+        );
+
+        final updatedTransaction = widget.transaction!.copyWith(
+          status: Transaction.STATUS_FAILED,
+          syncStatus: Transaction.SYNC_SYNCED,
+        );
+
+        await _dbHelper.updateTransaction(updatedTransaction);
+      }
+
+      Fluttertoast.showToast(
+        msg: "Too many failed attempts. Transaction failed.",
+        backgroundColor: Colors.red,
+        textColor: Colors.white,
+      );
+
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Error: $e');
+    } finally {
+      setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _navigateToSuccess(Transaction transaction) async {
+    // Ensure contact has a local_id before proceeding
     Contact contactToUse = widget.contact;
 
-    if (contactToUse.id == null) {
-      final dbHelper = DatabaseHelper();
-      final newId = await dbHelper.insertContact(contactToUse);
+    if (contactToUse.localId == null) {
+      final newLocalId = await _dbHelper.insertContact(contactToUse);
       contactToUse = Contact(
-        id: newId,
+        localId: newLocalId,
         name: contactToUse.name,
         vpa: contactToUse.vpa,
         phone: contactToUse.phone,
+        isVerified: contactToUse.isVerified,
+        isMerchant: contactToUse.isMerchant,
+        djangoId: contactToUse.djangoId,
+        lastPaidAt: contactToUse.lastPaidAt,
       );
     }
+
+    // Update last_paid_at for this contact
+    await _dbHelper.updateContactLastPaid(contactToUse.vpa);
+
+    if (!mounted) return;
 
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(
         builder:
             (_) => PaymentSuccessScreen(
-              contact: contactToUse, // Now has valid ID
+              contact: contactToUse,
               amount: widget.amount,
               note: widget.note,
+              transaction: transaction,
+            ),
+      ),
+      (route) => route.isFirst,
+    );
+  }
+
+  Future<void> _navigateToLegacySuccess() async {
+    Contact contactToUse = widget.contact;
+
+    if (contactToUse.localId == null) {
+      final newLocalId = await _dbHelper.insertContact(contactToUse);
+      contactToUse = Contact(
+        localId: newLocalId,
+        name: contactToUse.name,
+        vpa: contactToUse.vpa,
+        phone: contactToUse.phone,
+        isVerified: contactToUse.isVerified,
+        isMerchant: contactToUse.isMerchant,
+        djangoId: contactToUse.djangoId,
+        lastPaidAt: contactToUse.lastPaidAt,
+      );
+    }
+
+    // Update last_paid_at for this contact
+    await _dbHelper.updateContactLastPaid(contactToUse.vpa);
+
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(
+        builder:
+            (_) => PaymentSuccessScreen(
+              contact: contactToUse,
+              amount: widget.amount,
+              note: widget.note,
+              transaction: null,
             ),
       ),
       (route) => route.isFirst,
@@ -130,9 +236,9 @@ class _UpiPinScreenState extends State<UpiPinScreen> {
   void _showBalanceWindow() {
     showModalBottomSheet(
       context: context,
-      isDismissible: false, // Prevents closing by tapping outside
-      enableDrag: false, // Prevents sliding it down manually
-      backgroundColor: Colors.transparent, // Allow custom shape/color
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
       builder: (context) {
         return Container(
           padding: const EdgeInsets.all(24),
@@ -141,9 +247,8 @@ class _UpiPinScreenState extends State<UpiPinScreen> {
             borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.min, // Wrap content height
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // Decorative Handle
               Container(
                 width: 40,
                 height: 4,
@@ -172,14 +277,12 @@ class _UpiPinScreenState extends State<UpiPinScreen> {
                 style: TextStyle(color: Colors.white70, fontSize: 14),
               ),
               const SizedBox(height: 32),
-
-              // Primary Action Button
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    Navigator.pop(context); // Close BottomSheet
-                    Navigator.pop(context); // Return to Money Screen
+                    Navigator.pop(context);
+                    Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orange,
@@ -195,12 +298,14 @@ class _UpiPinScreenState extends State<UpiPinScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 16), // Padding for bottom safety
+              const SizedBox(height: 16),
             ],
           ),
         );
       },
-    );
+    ).then((_) {
+      setState(() => _isProcessing = false);
+    });
   }
 
   @override
@@ -215,24 +320,31 @@ class _UpiPinScreenState extends State<UpiPinScreen> {
           style: TextStyle(color: Colors.black),
         ),
         iconTheme: const IconThemeData(color: Colors.black),
+        leading:
+            _isProcessing
+                ? const Center(
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+                : IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.pop(context),
+                ),
       ),
       body: Column(
         children: [
-          // Header showing recipient and amount
           _buildTopBar(),
           const Spacer(),
-
-          // PIN Visualization (Dots)
           const Text(
             "ENTER 4-DIGIT PIN",
             style: TextStyle(letterSpacing: 2, color: Colors.blueGrey),
           ),
           const SizedBox(height: 20),
           _buildPinDots(),
-
           const Spacer(),
-
-          // Custom Numeric Keypad
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -243,8 +355,6 @@ class _UpiPinScreenState extends State<UpiPinScreen> {
       ),
     );
   }
-
-  // --- UI COMPONENTS ---
 
   Widget _buildTopBar() {
     return Container(
@@ -310,12 +420,14 @@ class _UpiPinScreenState extends State<UpiPinScreen> {
             return Expanded(
               child: InkWell(
                 onTap: () {
-                  if (key == 'backspace') {
-                    _onBackspace();
-                  } else if (key == 'ok') {
-                    _onOk();
-                  } else if (key != null) {
-                    _onKeyTap(key);
+                  if (!_isProcessing) {
+                    if (key == 'backspace') {
+                      _onBackspace();
+                    } else if (key == 'ok') {
+                      _onOk();
+                    } else if (key != null) {
+                      _onKeyTap(key);
+                    }
                   }
                 },
                 child: Container(

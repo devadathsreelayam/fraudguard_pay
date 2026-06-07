@@ -6,6 +6,7 @@ import 'package:fraudguard_pay/models/message_model.dart';
 import 'package:fraudguard_pay/models/transaction_model.dart';
 import 'package:fraudguard_pay/utils/settings_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 /// Debug Database Admin Screen
 /// Access via: DebugDatabaseScreen() or through a hidden route
@@ -21,6 +22,7 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final DatabaseHelper _dbHelper = DatabaseHelper();
+  final Uuid _uuid = const Uuid();
 
   List<Contact> _allContacts = [];
   List<Transaction> _allTransactions = [];
@@ -31,7 +33,9 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
   final contactNameController = TextEditingController();
   final contactVpaController = TextEditingController();
   final contactPhoneController = TextEditingController();
-  int? _editingContactId;
+  bool contactIsMerchant = true;
+  bool contactIsVerified = false;
+  String? _editingContactLocalId;
 
   // Transaction form controllers
   final txnIdController = TextEditingController();
@@ -40,6 +44,7 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
   final txnSenderController = TextEditingController();
   final txnTypeController = TextEditingController();
   final txnStatusController = TextEditingController();
+  final txnFraudStatusController = TextEditingController();
   final txnNoteController = TextEditingController();
   String? _editingTransactionId;
 
@@ -70,7 +75,10 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
       _allContacts = contacts;
       _allTransactions = transactions;
       _allMessages = messages;
-      _contactsMap = {for (var c in contacts) c.id!: c};
+      _contactsMap = {
+        for (var c in contacts)
+          if (c.localId != null) c.localId!: c,
+      };
       _isLoading = false;
     });
   }
@@ -84,15 +92,19 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
 
   void _showContactForm({Contact? contact}) {
     if (contact != null) {
-      _editingContactId = contact.id;
+      _editingContactLocalId = contact.localId?.toString();
       contactNameController.text = contact.name;
       contactVpaController.text = contact.vpa;
       contactPhoneController.text = contact.phone;
+      contactIsMerchant = contact.isMerchant;
+      contactIsVerified = contact.isVerified;
     } else {
-      _editingContactId = null;
+      _editingContactLocalId = null;
       contactNameController.clear();
       contactVpaController.clear();
       contactPhoneController.clear();
+      contactIsMerchant = true;
+      contactIsVerified = false;
     }
 
     showModalBottomSheet(
@@ -103,110 +115,153 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder:
-          (context) => Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
-              left: 16,
-              right: 16,
-              top: 16,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: borderColor,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
+          (context) => StatefulBuilder(
+            builder: (context, setModalState) {
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                  left: 16,
+                  right: 16,
+                  top: 16,
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  _editingContactId == null ? 'Add Contact' : 'Edit Contact',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: contactNameController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Name',
-                    labelStyle: TextStyle(color: textSecondary),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contactVpaController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'VPA',
-                    labelStyle: TextStyle(color: textSecondary),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contactPhoneController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Phone',
-                    labelStyle: TextStyle(color: textSecondary),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              _editingContactId == null
-                                  ? accentOrange
-                                  : Colors.orange,
-                        ),
-                        onPressed: _saveContact,
-                        child: Text(
-                          _editingContactId == null ? 'Add' : 'Update',
-                          style: const TextStyle(color: Colors.white),
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: borderColor,
+                          borderRadius: BorderRadius.circular(2),
                         ),
                       ),
                     ),
-                    if (_editingContactId != null) ...[
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
-                          ),
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _deleteContact(
-                              _editingContactId!,
-                              contactNameController.text,
-                            );
-                          },
-                          child: const Text(
-                            'Delete',
-                            style: TextStyle(color: Colors.white),
+                    const SizedBox(height: 16),
+                    Text(
+                      _editingContactLocalId == null
+                          ? 'Add Contact'
+                          : 'Edit Contact',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: contactNameController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        labelText: 'Name',
+                        labelStyle: TextStyle(color: textSecondary),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: contactVpaController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        labelText: 'VPA',
+                        labelStyle: TextStyle(color: textSecondary),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: contactPhoneController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        labelText: 'Phone',
+                        labelStyle: TextStyle(color: textSecondary),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CheckboxListTile(
+                            title: const Text(
+                              'Is Merchant',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            value: contactIsMerchant,
+                            onChanged: (value) {
+                              setModalState(
+                                () => contactIsMerchant = value ?? true,
+                              );
+                            },
+                            activeColor: accentOrange,
+                            dense: true,
                           ),
                         ),
-                      ),
-                    ],
+                        Expanded(
+                          child: CheckboxListTile(
+                            title: const Text(
+                              'Is Verified',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            value: contactIsVerified,
+                            onChanged: (value) {
+                              setModalState(
+                                () => contactIsVerified = value ?? false,
+                              );
+                            },
+                            activeColor: accentOrange,
+                            dense: true,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor:
+                                  _editingContactLocalId == null
+                                      ? accentOrange
+                                      : Colors.orange,
+                            ),
+                            onPressed: _saveContact,
+                            child: Text(
+                              _editingContactLocalId == null ? 'Add' : 'Update',
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ),
+                        ),
+                        if (_editingContactLocalId != null) ...[
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                              ),
+                              onPressed: () {
+                                Navigator.pop(context);
+                                _deleteContact(
+                                  int.parse(_editingContactLocalId!),
+                                  contactNameController.text,
+                                );
+                              },
+                              child: const Text(
+                                'Delete',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
                   ],
                 ),
-                const SizedBox(height: 16),
-              ],
-            ),
+              );
+            },
           ),
     );
   }
@@ -221,16 +276,21 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
     }
 
     final contact = Contact(
-      id: null,
+      localId:
+          _editingContactLocalId != null
+              ? int.parse(_editingContactLocalId!)
+              : null,
       name: contactNameController.text,
       vpa: contactVpaController.text,
       phone:
           contactPhoneController.text.isNotEmpty
               ? contactPhoneController.text
               : "",
+      isMerchant: contactIsMerchant,
+      isVerified: contactIsVerified,
     );
 
-    if (_editingContactId == null) {
+    if (_editingContactLocalId == null) {
       await _dbHelper.insertContact(contact);
       ScaffoldMessenger.of(
         context,
@@ -246,7 +306,7 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
     _loadData();
   }
 
-  void _deleteContact(int id, String name) {
+  void _deleteContact(int localId, String name) {
     showDialog(
       context: context,
       builder:
@@ -260,7 +320,7 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
               ),
               TextButton(
                 onPressed: () {
-                  _dbHelper.deleteContact(id).then((_) {
+                  _dbHelper.deleteContact(localId).then((_) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('✅ Contact deleted')),
                     );
@@ -287,17 +347,19 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
       txnSenderController.text = transaction.senderContactId.toString();
       txnRecipientController.text = transaction.recipientContactId.toString();
       txnAmountController.text = transaction.amount.toString();
-      txnTypeController.text = transaction.type;
+      txnTypeController.text = transaction.transactionType;
       txnStatusController.text = transaction.status;
+      txnFraudStatusController.text = transaction.fraudStatus;
       txnNoteController.text = transaction.note ?? '';
     } else {
       _editingTransactionId = null;
-      txnIdController.clear();
+      txnIdController.text = _uuid.v4();
       txnSenderController.text = '0';
       txnRecipientController.clear();
       txnAmountController.clear();
-      txnTypeController.text = 'Money Sent';
-      txnStatusController.text = 'Success';
+      txnTypeController.text = Transaction.TRANSACTION_TYPE_P2M;
+      txnStatusController.text = Transaction.STATUS_PENDING;
+      txnFraudStatusController.text = Transaction.FRAUD_LEGIT;
       txnNoteController.clear();
     }
 
@@ -350,7 +412,6 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
                       labelText: 'Transaction ID',
                       labelStyle: TextStyle(color: textSecondary),
                       border: OutlineInputBorder(),
-                      hintText: 'e.g., TXN_001',
                     ),
                     readOnly: _editingTransactionId != null,
                   ),
@@ -360,10 +421,9 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
                     style: const TextStyle(color: Colors.white),
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
-                      labelText: 'Sender Contact ID',
+                      labelText: 'Sender Contact ID (0 = me)',
                       labelStyle: TextStyle(color: textSecondary),
                       border: OutlineInputBorder(),
-                      hintText: 'Contact ID (0 = me)',
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -393,7 +453,7 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
                     controller: txnTypeController,
                     style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(
-                      labelText: 'Type (Money Sent / Money Received)',
+                      labelText: 'Transaction Type (P2P/P2M)',
                       labelStyle: TextStyle(color: textSecondary),
                       border: OutlineInputBorder(),
                     ),
@@ -403,7 +463,17 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
                     controller: txnStatusController,
                     style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(
-                      labelText: 'Status (Success / Failed / Pending)',
+                      labelText: 'Status (PENDING/SUCCESS/FAILED/CANCELLED)',
+                      labelStyle: TextStyle(color: textSecondary),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: txnFraudStatusController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: 'Fraud Status (LEGIT/REVIEW/FRAUD)',
                       labelStyle: TextStyle(color: textSecondary),
                       border: OutlineInputBorder(),
                     ),
@@ -500,15 +570,23 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
       senderContactId: senderId,
       recipientContactId: recipientId,
       amount: amount,
-      type:
+      transactionType:
           txnTypeController.text.isNotEmpty
               ? txnTypeController.text
-              : 'Money Sent',
+              : Transaction.TRANSACTION_TYPE_P2M,
+      recipientType: Transaction.RECIPIENT_TYPE_MERCHANT,
       status:
           txnStatusController.text.isNotEmpty
               ? txnStatusController.text
-              : 'Success',
+              : Transaction.STATUS_PENDING,
+      fraudStatus:
+          txnFraudStatusController.text.isNotEmpty
+              ? txnFraudStatusController.text
+              : Transaction.FRAUD_LEGIT,
       note: txnNoteController.text.isNotEmpty ? txnNoteController.text : null,
+      userLocation: 'Debug',
+      networkType: 'WiFi',
+      syncStatus: Transaction.SYNC_SYNCED,
     );
 
     if (_editingTransactionId == null) {
@@ -560,22 +638,24 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
   }
 
   Future<void> _toggleFraudStatus(Transaction txn) async {
-    final newFraudStatus = !txn.isFraud;
-    final riskFactors =
-        newFraudStatus
-            ? 'Marked as fraud from debug screen on ${DateTime.now()}'
-            : null;
+    final newFraudStatus =
+        txn.fraudStatus == Transaction.FRAUD_LEGIT
+            ? Transaction.FRAUD_FRAUD
+            : Transaction.FRAUD_LEGIT;
 
-    await _dbHelper.updateFraudStatus(
-      txn.id,
-      newFraudStatus,
-      riskFactors: riskFactors,
+    final updatedTransaction = txn.copyWith(
+      fraudStatus: newFraudStatus,
+      syncStatus: Transaction.SYNC_PENDING,
     );
+
+    await _dbHelper.updateTransaction(updatedTransaction);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          newFraudStatus ? '🚨 Marked as fraudulent' : '✅ Removed fraud flag',
+          newFraudStatus == Transaction.FRAUD_FRAUD
+              ? '🚨 Marked as fraudulent'
+              : '✅ Removed fraud flag',
         ),
       ),
     );
@@ -593,7 +673,7 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
       messageTextController.text = message.text;
     } else {
       _editingMessageId = null;
-      messageIdController.clear();
+      messageIdController.text = _uuid.v4();
       messageSenderController.text = '0';
       messageRecipientController.clear();
       messageTextController.clear();
@@ -645,7 +725,6 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
                     labelText: 'Message ID',
                     labelStyle: TextStyle(color: textSecondary),
                     border: OutlineInputBorder(),
-                    hintText: 'e.g., msg_001',
                   ),
                   readOnly: _editingMessageId != null,
                 ),
@@ -655,10 +734,9 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
                   style: const TextStyle(color: Colors.white),
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
-                    labelText: 'Sender Contact ID',
+                    labelText: 'Sender Contact ID (0 = me)',
                     labelStyle: TextStyle(color: textSecondary),
                     border: OutlineInputBorder(),
-                    hintText: 'Contact ID (0 = me)',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -849,7 +927,7 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // --- Settings Section ---
+          // Settings Section
           Card(
             color: cardBg,
             margin: const EdgeInsets.only(bottom: 16),
@@ -897,7 +975,7 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
                           decoration: const InputDecoration(
                             labelText: 'API Endpoint URL',
                             labelStyle: TextStyle(color: textSecondary),
-                            hintText: 'http://10.0.2.2:8000/api/predict/',
+                            hintText: 'http://10.0.2.2:5000/api/predict/',
                           ),
                           style: const TextStyle(color: Colors.white),
                           onChanged: (value) async {
@@ -929,20 +1007,6 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
                         style: const TextStyle(
                           color: textSecondary,
                           fontSize: 12,
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 4),
-                  FutureBuilder<String>(
-                    future: SettingsManager.getBaseUrlFromEndpoint(),
-                    builder: (context, snapshot) {
-                      final baseUrl = snapshot.data ?? 'Loading...';
-                      return Text(
-                        'Base URL for health check: $baseUrl',
-                        style: const TextStyle(
-                          color: textSecondary,
-                          fontSize: 11,
                         ),
                       );
                     },
@@ -994,12 +1058,40 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
           color: cardBg,
           margin: const EdgeInsets.only(bottom: 12),
           child: ListTile(
-            title: Text(
-              contact.name,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    contact.name,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (contact.isMerchant)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color:
+                          contact.isVerified
+                              ? Colors.green.withOpacity(0.2)
+                              : Colors.orange.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      contact.isVerified ? 'Verified' : 'Unverified',
+                      style: TextStyle(
+                        color:
+                            contact.isVerified ? Colors.green : Colors.orange,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             subtitle: Text(
               '${contact.vpa} • ${contact.phone}',
@@ -1014,7 +1106,8 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () => _deleteContact(contact.id!, contact.name),
+                  onPressed:
+                      () => _deleteContact(contact.localId!, contact.name),
                 ),
               ],
             ),
@@ -1070,8 +1163,9 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
       itemCount: _allTransactions.length,
       itemBuilder: (context, index) {
         final txn = _allTransactions[index];
+        final isFraud = txn.fraudStatus == Transaction.FRAUD_FRAUD;
         return Card(
-          color: txn.isFraud ? const Color(0xFF8B0000) : cardBg,
+          color: isFraud ? const Color(0xFF8B0000) : cardBg,
           margin: const EdgeInsets.only(bottom: 12),
           child: ListTile(
             title: Text(
@@ -1081,23 +1175,32 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
                 fontWeight: FontWeight.bold,
               ),
             ),
-            subtitle: Text(
-              '₹${txn.amount.toStringAsFixed(2)} • ${txn.status} • ID: ${txn.id}',
-              style: TextStyle(
-                color: txn.isFraud ? Colors.red : textSecondary,
-                fontSize: 12,
-              ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '₹${txn.amount.toStringAsFixed(2)} • Status: ${txn.status} • Fraud: ${txn.fraudStatus}',
+                  style: TextStyle(
+                    color: isFraud ? Colors.red : textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
+                Text(
+                  'ID: ${txn.id}',
+                  style: const TextStyle(color: textSecondary, fontSize: 10),
+                ),
+              ],
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
                   icon: Icon(
-                    txn.isFraud ? Icons.warning_rounded : Icons.shield_outlined,
+                    isFraud ? Icons.warning_rounded : Icons.shield_outlined,
                   ),
-                  color: txn.isFraud ? Colors.red : Colors.green,
+                  color: isFraud ? Colors.red : Colors.green,
                   onPressed: () => _toggleFraudStatus(txn),
-                  tooltip: txn.isFraud ? 'Remove fraud flag' : 'Mark as fraud',
+                  tooltip: isFraud ? 'Remove fraud flag' : 'Mark as fraud',
                 ),
                 IconButton(
                   icon: const Icon(Icons.edit, color: Colors.orange),
@@ -1224,6 +1327,7 @@ class _DebugDatabaseScreenState extends State<DebugDatabaseScreen>
     txnSenderController.dispose();
     txnTypeController.dispose();
     txnStatusController.dispose();
+    txnFraudStatusController.dispose();
     txnNoteController.dispose();
     messageIdController.dispose();
     messageSenderController.dispose();

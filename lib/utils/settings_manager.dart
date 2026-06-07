@@ -5,7 +5,7 @@ class SettingsManager {
   static const String _fraudCheckEnabledKey = 'fraud_check_enabled';
 
   // Default full endpoint
-  static const String _defaultApiEndpoint = 'http://10.0.2.2:8000/api/predict/';
+  static const String defaultApiEndpoint = 'http://192.168.1.8:5000';
 
   static Future<void> setApiEndpoint(String endpoint) async {
     final prefs = await SharedPreferences.getInstance();
@@ -14,7 +14,7 @@ class SettingsManager {
 
   static Future<String> getApiEndpoint() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_apiEndpointKey) ?? _defaultApiEndpoint;
+    return prefs.getString(_apiEndpointKey) ?? defaultApiEndpoint;
   }
 
   static Future<String> getBaseUrlFromEndpoint() async {
