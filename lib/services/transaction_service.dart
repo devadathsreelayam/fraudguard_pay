@@ -6,6 +6,8 @@ import 'package:fraudguard_pay/models/app_state_model.dart';
 // Provides business logic for transaction management.
 // ============================================================================
 
+/// services/transaction_service.dart
+
 class TransactionService {
   static final TransactionService _instance = TransactionService._internal();
 

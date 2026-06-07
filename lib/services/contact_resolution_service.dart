@@ -2,6 +2,8 @@ import 'package:fraudguard_pay/database/database_helper.dart';
 import 'package:fraudguard_pay/models/contact_model.dart';
 import 'package:fraudguard_pay/services/api_service.dart';
 
+/// services/contact_resolution_service.dart
+
 class ContactResolutionService {
   final ApiService _api = ApiService();
   final DatabaseHelper _db = DatabaseHelper();

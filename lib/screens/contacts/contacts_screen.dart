@@ -5,6 +5,7 @@ import 'package:fraudguard_pay/models/contact_model.dart';
 import 'package:fraudguard_pay/screens/contacts/contact_chat_screen.dart';
 import 'package:intl/intl.dart';
 
+// contacts_screen.dart
 /// Contacts screen showing list of frequent contacts for payments.
 /// Flows: Home → Contacts Screen → Payment Detail Screen
 class ContactsScreen extends StatefulWidget {

@@ -2,6 +2,8 @@ import 'package:fraudguard_pay/database/database_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+/// services/user_manager.dart
+
 class UserManager {
   static const String _customerIdKey = 'customer_id';
   static const String _deviceIdKey = 'device_id';

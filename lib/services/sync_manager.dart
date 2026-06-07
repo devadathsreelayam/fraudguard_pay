@@ -3,6 +3,8 @@ import 'package:fraudguard_pay/models/contact_model.dart';
 import 'package:fraudguard_pay/models/transaction_model.dart';
 import 'package:fraudguard_pay/services/api_service.dart';
 
+/// services/sync_manager.dart
+
 class SyncManager {
   final ApiService _api = ApiService();
   final DatabaseHelper _db = DatabaseHelper();

@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:fraudguard_pay/utils/settings_manager.dart';
 
+/// services/fraud_api_service.dart
+
 class FraudApiService {
   Future<Map<String, dynamic>> checkTransaction(
     Map<String, dynamic> transactionData,

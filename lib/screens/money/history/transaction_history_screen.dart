@@ -5,6 +5,7 @@ import 'package:fraudguard_pay/models/transaction_model.dart';
 import 'package:fraudguard_pay/config/theme.dart';
 import 'package:intl/intl.dart';
 
+/// transaction_history_screen.dart
 /// Transaction history screen with search and filtering capabilities.
 /// Flows: Home/Money → Transaction History → {Filter by status/date/amount}
 class TransactionHistoryScreen extends StatefulWidget {

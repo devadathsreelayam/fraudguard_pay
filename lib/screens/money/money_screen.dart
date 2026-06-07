@@ -7,6 +7,7 @@ import 'package:fraudguard_pay/screens/payment/upi_pin_screen.dart';
 import 'package:fraudguard_pay/screens/money/history/transaction_history_screen.dart';
 import 'package:intl/intl.dart';
 
+/// screens/money_screen.dart
 /// Money/Wallet screen showing spending overview and recent transactions.
 /// Flows: Home → Money Screen → {Check Balance, Transaction History}
 class MoneyScreen extends StatefulWidget {
