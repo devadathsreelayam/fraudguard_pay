@@ -1,7 +1,6 @@
-// contact_chat_screen.dart
-/// Chat-like interface showing transaction history and messages with a specific contact.
-/// Flows: Contacts Screen → Contact Chat Screen → Payment Input Screen
+// screens/contacts/contact_detail/contact_chat_screen.dart
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:fraudguard_pay/models/message_model.dart';
 import 'package:fraudguard_pay/models/transaction_model.dart';
@@ -10,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:fraudguard_pay/config/theme.dart';
 import 'package:fraudguard_pay/screens/payment/payment_input_screen.dart';
 import 'package:fraudguard_pay/database/database_helper.dart';
+import 'package:fraudguard_pay/screens/navigation/main_navigation_screen.dart';
 
 class ContactChatScreen extends StatefulWidget {
   final Contact contact;
@@ -27,115 +27,96 @@ class _ContactChatScreenState extends State<ContactChatScreen>
 
   final TextEditingController _messageController = TextEditingController();
   final DatabaseHelper _dbHelper = DatabaseHelper();
-  final int _myContactId = 0; // Fixed ID for "me"
+  final int _myContactId = 0;
 
   List<Message> _messages = [];
   List<Transaction> _transactions = [];
   bool _isLoading = true;
 
-  /// Get all transactions between me and this contact (both sent AND received)
-  List<Transaction> get _relevantTransactions {
-    final contactLocalId = widget.contact.localId;
-    if (contactLocalId == null) return [];
+  // ── Field declarations (must be at class level, NOT inside initState) ──────
+  StreamSubscription<void>? _refreshSub;
 
-    final relevant =
-        _transactions.where((txn) {
-          // Transaction sent by me to this contact
-          final bool sentByMe =
-              txn.senderContactId == _myContactId &&
-              txn.recipientContactId == contactLocalId;
-          // Transaction received by me from this contact
-          final bool receivedByMe =
-              txn.senderContactId == contactLocalId &&
-              txn.recipientContactId == _myContactId;
-          return sentByMe || receivedByMe;
-        }).toList();
-
-    // Sort by timestamp (newest first)
-    relevant.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return relevant;
-  }
+  List<Transaction> get _relevantTransactions => _transactions;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    // Subscribe to global refresh events (triggered after sync or payment)
+    _refreshSub = AppRefresh.stream.listen((_) {
+      if (mounted) _loadData();
+    });
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Refresh data when coming back to this screen (e.g., after payment)
-    _loadData();
-  }
+  // ── Removed didChangeDependencies _loadData() call ─────────────────────────
+  // It caused double-loads every time the screen was navigated back to.
+  // initState + AppRefresh stream handles all refresh cases.
 
   Future<void> _loadData() async {
     if (!mounted) return;
-
     setState(() => _isLoading = true);
 
     try {
-      // Get messages between me and this contact
+      final contactLocalId = widget.contact.localId;
+      if (contactLocalId == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
       final messages = await _dbHelper.getMessagesBetween(
         _myContactId,
-        widget.contact.localId!,
+        contactLocalId,
       );
+      final txns = await _dbHelper.getTransactionsForContact(contactLocalId);
 
-      // Get all transactions from database
-      final allTransactions = await _dbHelper.getTransactions();
-
-      print(
-        '📊 ContactChatScreen: Loaded ${allTransactions.length} total transactions',
-      );
-      print(
-        '📊 Contact ID: ${widget.contact.localId}, Name: ${widget.contact.name}',
-      );
-
-      setState(() {
-        _messages = messages;
-        _transactions = allTransactions;
-        _isLoading = false;
-      });
-
-      // Debug: Print relevant transactions
-      final relevant = _relevantTransactions;
-      print('📊 Relevant transactions for this chat: ${relevant.length}');
-      for (var txn in relevant) {
-        print(
-          '   - ${txn.id}: ${txn.isSent ? "Sent" : "Received"} ₹${txn.amount}',
-        );
+      if (mounted) {
+        setState(() {
+          _messages = messages;
+          _transactions = txns;
+          _isLoading = false;
+        });
       }
     } catch (e) {
-      print('Error loading data: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      debugPrint('ContactChatScreen._loadData error: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _sendMessage() async {
-    final String cleanText = _messageController.text.trim();
-    if (cleanText.isEmpty) return;
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
 
     final newMessage = Message(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       senderContactId: _myContactId,
       recipientContactId: widget.contact.localId!,
-      text: cleanText,
+      text: text,
       timestamp: DateTime.now(),
     );
 
     await _dbHelper.insertMessage(newMessage);
-
     setState(() {
       _messages.insert(0, newMessage);
       _messageController.clear();
     });
   }
 
+  void _navigateToPayment() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaymentInputScreen(contact: widget.contact),
+      ),
+    ).then((_) {
+      AppRefresh.notify(); // triggers sync in MainNavigationScreen
+      _loadData(); // immediate local refresh
+    });
+  }
+
   @override
   void dispose() {
     _messageController.dispose();
+    _refreshSub?.cancel();
     super.dispose();
   }
 
@@ -143,8 +124,7 @@ class _ContactChatScreenState extends State<ContactChatScreen>
   Widget build(BuildContext context) {
     super.build(context);
 
-    final txns = _relevantTransactions;
-    final allItems = _buildCombinedList(txns);
+    final allItems = _buildCombinedList(_relevantTransactions);
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
@@ -206,7 +186,7 @@ class _ContactChatScreenState extends State<ContactChatScreen>
                 ? const Center(
                   child: CircularProgressIndicator(color: accentOrange),
                 )
-                : (allItems.isEmpty && _messages.isEmpty)
+                : allItems.isEmpty
                 ? _buildEmptyState()
                 : ListView.builder(
                   padding: const EdgeInsets.all(16),
@@ -229,9 +209,8 @@ class _ContactChatScreenState extends State<ContactChatScreen>
   }
 
   List<Map<String, dynamic>> _buildCombinedList(List<Transaction> txns) {
-    List<Map<String, dynamic>> items = [];
+    final items = <Map<String, dynamic>>[];
 
-    // Add messages
     for (var msg in _messages) {
       items.add({
         'type': 'message',
@@ -239,8 +218,6 @@ class _ContactChatScreenState extends State<ContactChatScreen>
         'timestamp': msg.timestamp,
       });
     }
-
-    // Add transactions
     for (var txn in txns) {
       items.add({
         'type': 'transaction',
@@ -249,13 +226,15 @@ class _ContactChatScreenState extends State<ContactChatScreen>
       });
     }
 
-    // Sort by timestamp (newest first for reverse list)
-    items.sort((a, b) => b['timestamp'].compareTo(a['timestamp']));
+    items.sort(
+      (a, b) =>
+          (b['timestamp'] as DateTime).compareTo(a['timestamp'] as DateTime),
+    );
     return items;
   }
 
   Widget _buildMessageBubble(Message message) {
-    bool isMe = message.senderContactId == _myContactId;
+    final bool isMe = message.senderContactId == _myContactId;
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -301,7 +280,6 @@ class _ContactChatScreenState extends State<ContactChatScreen>
     final bool isFraud = txn.fraudStatus == Transaction.FRAUD_FRAUD;
     final bool isReview = txn.fraudStatus == Transaction.FRAUD_REVIEW;
 
-    // Determine card styling
     Color cardBorderColor = borderColor;
     Color titleColor = Colors.white;
     String titleText = isSent ? "You paid" : "You received";
@@ -310,7 +288,7 @@ class _ContactChatScreenState extends State<ContactChatScreen>
     if (isPending) {
       cardBorderColor = Colors.orange;
       titleColor = Colors.orange;
-      titleText = isSent ? "Processing" : "Processing";
+      titleText = "Processing";
       statusIcon = Icons.pending;
     } else if (isFraud) {
       cardBorderColor = Colors.red;
@@ -325,26 +303,19 @@ class _ContactChatScreenState extends State<ContactChatScreen>
     } else if (isFailed) {
       cardBorderColor = Colors.red;
       titleColor = Colors.red;
-      titleText = isSent ? "Failed" : "Failed";
+      titleText = "Failed";
       statusIcon = Icons.cancel_rounded;
     } else if (isCancelled) {
       cardBorderColor = Colors.grey;
       titleColor = Colors.grey;
-      titleText = isSent ? "Cancelled" : "Cancelled";
+      titleText = "Cancelled";
       statusIcon = Icons.cancel_outlined;
     } else if (isSuccess) {
-      if (isSent) {
-        cardBorderColor = Colors.green;
-        titleColor = Colors.green;
-        titleText = "Success";
-      } else {
-        titleColor = Colors.green;
-        titleText = "Received";
-      }
+      cardBorderColor = isSent ? Colors.green : borderColor;
+      titleColor = Colors.green;
+      titleText = isSent ? "Success" : "Received";
       statusIcon = Icons.check_circle_rounded;
     }
-
-    Color cardBgColor = isSent ? cardBg : secondaryDark;
 
     return Align(
       alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
@@ -353,7 +324,7 @@ class _ContactChatScreenState extends State<ContactChatScreen>
         margin: const EdgeInsets.symmetric(vertical: 6),
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: cardBgColor,
+          color: isSent ? cardBg : secondaryDark,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: cardBorderColor, width: 0.5),
         ),
@@ -450,7 +421,7 @@ class _ContactChatScreenState extends State<ContactChatScreen>
           ),
           const SizedBox(height: 12),
           ElevatedButton.icon(
-            onPressed: () => _navigateToPayment(),
+            onPressed: _navigateToPayment,
             icon: const Icon(Icons.payment, size: 18),
             label: const Text("Send Money"),
             style: ElevatedButton.styleFrom(
@@ -465,15 +436,6 @@ class _ContactChatScreenState extends State<ContactChatScreen>
     );
   }
 
-  void _navigateToPayment() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PaymentInputScreen(contact: widget.contact),
-      ),
-    ).then((_) => _loadData());
-  }
-
   Widget _buildBottomBar(BuildContext context) {
     return SafeArea(
       child: Container(
@@ -484,7 +446,6 @@ class _ContactChatScreenState extends State<ContactChatScreen>
         ),
         child: Row(
           children: [
-            // Message input with inline send
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -498,6 +459,7 @@ class _ContactChatScreenState extends State<ContactChatScreen>
                         controller: _messageController,
                         style: const TextStyle(color: Colors.white),
                         textCapitalization: TextCapitalization.sentences,
+                        onChanged: (_) => setState(() {}), // update send icon
                         decoration: const InputDecoration(
                           hintText: "Message...",
                           hintStyle: TextStyle(color: Colors.white54),
@@ -527,7 +489,6 @@ class _ContactChatScreenState extends State<ContactChatScreen>
               ),
             ),
             const SizedBox(width: 12),
-            // Pay button
             ElevatedButton(
               onPressed: _navigateToPayment,
               style: ElevatedButton.styleFrom(

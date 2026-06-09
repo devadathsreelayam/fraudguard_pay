@@ -1,6 +1,7 @@
 // database/database_helper.dart
 
 import 'package:fraudguard_pay/models/message_model.dart';
+import 'package:fraudguard_pay/services/user_manager.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart';
@@ -159,7 +160,11 @@ class DatabaseHelper {
 
   Future<List<Contact>> getContacts() async {
     final db = await database;
-    final maps = await db.query('contacts', orderBy: 'name ASC');
+    final maps = await db.query(
+      'contacts',
+      where: 'local_id != 0',
+      orderBy: 'name ASC',
+    );
     return maps.map((map) => Contact.fromMap(map)).toList();
   }
 
@@ -243,6 +248,7 @@ class DatabaseHelper {
     final db = await database;
     final List<Map<String, dynamic>> result = await db.query(
       'contacts',
+      where: 'local_id != 0',
       orderBy: 'last_paid_at DESC NULLS LAST',
       limit: limit,
     );
@@ -442,5 +448,117 @@ class DatabaseHelper {
       LEFT JOIN fraud_flags f ON t.id = f.transaction_id
       ORDER BY t.timestamp DESC
     ''');
+  }
+
+  // ── Contact helpers ────────────────────────────────────────────────────────
+
+  /// Insert or update a contact by VPA (unique key).
+  /// Returns the local_id of the inserted/updated row.
+  Future<int> insertOrUpdateContactReturningId(Contact contact) async {
+    final db = await database;
+
+    // Check if contact with this VPA already exists
+    final existing = await db.query(
+      'contacts',
+      where: 'vpa = ?',
+      whereArgs: [contact.vpa],
+      columns: ['local_id'],
+    );
+
+    if (existing.isNotEmpty) {
+      final localId = existing.first['local_id'] as int;
+      // Update fields but preserve local_id
+      await db.update(
+        'contacts',
+        {
+          'name': contact.name,
+          'phone': contact.phone,
+          'is_verified': contact.isVerified ? 1 : 0,
+          'is_merchant': contact.isMerchant ? 1 : 0,
+          'django_id': contact.djangoId,
+          // do NOT overwrite last_paid_at during sync
+        },
+        where: 'vpa = ?',
+        whereArgs: [contact.vpa],
+      );
+      return localId;
+    } else {
+      return await db.insert('contacts', contact.toMap());
+    }
+  }
+
+  /// Ensure a "me" sentinel row exists for the current user.
+  /// We store this with django_id = userId and vpa = '__me__'
+  /// so transactions can reference senderContactId = 0.
+  /// (SQLite AUTOINCREMENT starts at 1, so 0 is never assigned naturally.)
+  Future<void> ensureMeContact(String myUserId) async {
+    final db = await database;
+    final name = await UserManager.getUserName();
+    final vpa = await UserManager.getUserVpa();
+
+    // We store in contacts with django_id = myUserId so lookups work,
+    // but we DO NOT give it an autoincrement id — we use raw insert with id 0.
+    // SQLite allows explicit rowid = 0 when using INTEGER PRIMARY KEY.
+    final existing = await db.query(
+      'contacts',
+      where: 'django_id = ?',
+      whereArgs: [myUserId],
+    );
+    if (existing.isEmpty) {
+      await db.rawInsert(
+        '''INSERT OR IGNORE INTO contacts
+           (local_id, name, vpa, phone, is_verified, is_merchant, django_id)
+           VALUES (0, ?, ?, '', 1, 0, ?)''',
+        [name, vpa.isNotEmpty ? vpa : '__me__', myUserId],
+      );
+    }
+  }
+
+  /// Look up a contact's local_id by their django_id.
+  Future<int?> getLocalIdByDjangoId(String djangoId) async {
+    if (djangoId.isEmpty) return null;
+    final db = await database;
+    final result = await db.query(
+      'contacts',
+      columns: ['local_id'],
+      where: 'django_id = ?',
+      whereArgs: [djangoId],
+    );
+    if (result.isNotEmpty) return result.first['local_id'] as int;
+    return null;
+  }
+
+  // ── Transaction helpers ───────────────────────────────────────────────────
+
+  /// Get all transactions involving a contact (sent to OR received from).
+  Future<List<tx.Transaction>> getTransactionsForContact(
+    int contactLocalId,
+  ) async {
+    // Prevent self sentinal
+    if (contactLocalId <= 0) return [];
+
+    final db = await database;
+    final maps = await db.query(
+      'transactions',
+      where: 'sender_contact_id = ? OR recipient_contact_id = ?',
+      whereArgs: [contactLocalId, contactLocalId],
+      orderBy: 'timestamp DESC',
+    );
+    return maps.map((m) => tx.Transaction.fromMap(m)).toList();
+  }
+
+  /// Update both status and fraud_status in one call.
+  Future<void> updateTransactionStatuses(
+    String transactionId, {
+    required String status,
+    required String fraudStatus,
+  }) async {
+    final db = await database;
+    await db.update(
+      'transactions',
+      {'status': status, 'fraud_status': fraudStatus},
+      where: 'id = ?',
+      whereArgs: [transactionId],
+    );
   }
 }

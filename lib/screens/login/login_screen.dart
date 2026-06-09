@@ -67,7 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
         await UserManager.setUserPhone(userPhone);
 
         // STEP 3: Sync fresh data from server
-        await SyncManager().syncOnLaunch(customerId);
+        await SyncManager().syncAll(customerId);
 
         if (mounted) {
           Fluttertoast.showToast(msg: '✅ Login successful!');

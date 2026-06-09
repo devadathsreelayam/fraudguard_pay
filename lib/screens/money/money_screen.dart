@@ -280,14 +280,14 @@ class _MoneyScreenState extends State<MoneyScreen> {
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (displayVpa.isNotEmpty)
-                          Text(
-                            displayVpa,
-                            style: const TextStyle(
-                              color: textSecondary,
-                              fontSize: 10,
-                            ),
-                          ),
+                        // if (displayVpa.isNotEmpty)
+                        //   Text(
+                        //     displayVpa,
+                        //     style: const TextStyle(
+                        //       color: textSecondary,
+                        //       fontSize: 10,
+                        //     ),
+                        //   ),
                         Text(
                           DateFormat('dd MMM, hh:mm a').format(txn.timestamp),
                           style: const TextStyle(
@@ -302,7 +302,7 @@ class _MoneyScreenState extends State<MoneyScreen> {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          "${isReceived ? '+' : '-'}₹${txn.amount.toStringAsFixed(2)}",
+                          "${isReceived ? '+' : ''}₹${txn.amount.toStringAsFixed(2)}",
                           style: TextStyle(
                             color:
                                 isReceived ? Colors.greenAccent : textPrimary,

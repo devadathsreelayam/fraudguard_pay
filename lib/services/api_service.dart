@@ -94,7 +94,7 @@ class ApiService {
     String transactionType = 'P2M',
     String? note,
   }) async {
-    return await post('/predict/', {
+    return await post('/predict-transaction/', {
       'user_id': userId,
       'device_id': deviceId,
       if (merchantVpa != null) 'merchant_vpa': merchantVpa,

@@ -115,26 +115,11 @@ class _ContactsScreenState extends State<ContactsScreen>
   }
 
   Widget _buildVerificationBadge(Contact contact) {
-    if (!contact.isMerchant) return const SizedBox.shrink();
+    if (!contact.isMerchant || !contact.isVerified) {
+      return const SizedBox.shrink();
+    }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color:
-            contact.isVerified
-                ? Colors.green.withOpacity(0.2)
-                : Colors.orange.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        contact.isVerified ? 'Verified' : 'Unverified',
-        style: TextStyle(
-          color: contact.isVerified ? Colors.green : Colors.orange,
-          fontSize: 10,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
+    return Icon(Icons.verified, color: Colors.green, size: 13);
   }
 
   @override
@@ -222,28 +207,12 @@ class _ContactsScreenState extends State<ContactsScreen>
                                   ),
                                 ),
                               ),
-                              if (contact.isMerchant && contact.isVerified)
-                                Positioned(
-                                  bottom: 0,
-                                  right: 0,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(2),
-                                    decoration: const BoxDecoration(
-                                      color: Colors.green,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.check,
-                                      size: 10,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
                             ],
                           ),
                           title: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Expanded(
+                              Flexible(
                                 child: Text(
                                   contact.name,
                                   style: const TextStyle(
@@ -254,7 +223,7 @@ class _ContactsScreenState extends State<ContactsScreen>
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 4),
                               _buildVerificationBadge(contact),
                             ],
                           ),
@@ -278,29 +247,6 @@ class _ContactsScreenState extends State<ContactsScreen>
                                 ),
                             ],
                           ),
-                          trailing:
-                              hasHistory
-                                  ? Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        DateFormat(
-                                          'dd/MM/yy',
-                                        ).format(lastTxnDate!),
-                                        style: const TextStyle(
-                                          color: Colors.grey,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Icon(
-                                        Icons.history,
-                                        size: 14,
-                                        color: Colors.grey.withOpacity(0.5),
-                                      ),
-                                    ],
-                                  )
-                                  : null,
                         );
                       },
                     ),

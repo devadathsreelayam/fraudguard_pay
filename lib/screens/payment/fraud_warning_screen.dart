@@ -15,7 +15,7 @@ class FraudWarningScreen extends StatefulWidget {
   final List<dynamic> reasons;
   final String decision;
   final VoidCallback onProceed;
-  final VoidCallback? onOverride; // New callback for override
+  final VoidCallback? onOverride; // Callback after successful override
 
   const FraudWarningScreen({
     super.key,
@@ -36,6 +36,7 @@ class _FraudWarningScreenState extends State<FraudWarningScreen> {
   bool _canProceed = false;
   Timer? _timer;
   bool _isOverriding = false;
+  bool _isOverridden = false; // Track if override was successful
   final TextEditingController _reasonController = TextEditingController();
   final ApiService _api = ApiService();
 
@@ -49,15 +50,17 @@ class _FraudWarningScreenState extends State<FraudWarningScreen> {
 
   void _startCountdown() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        if (_countdown > 1) {
-          _countdown--;
-        } else {
-          _countdown = 0;
-          _canProceed = true;
-          _timer?.cancel();
-        }
-      });
+      if (mounted) {
+        setState(() {
+          if (_countdown > 1) {
+            _countdown--;
+          } else {
+            _countdown = 0;
+            _canProceed = true;
+            _timer?.cancel();
+          }
+        });
+      }
     });
   }
 
@@ -71,6 +74,7 @@ class _FraudWarningScreenState extends State<FraudWarningScreen> {
         final userId = await UserManager.getCustomerId();
         if (userId == null) {
           Fluttertoast.showToast(msg: 'User not logged in');
+          setState(() => _isOverriding = false);
           return;
         }
 
@@ -90,58 +94,126 @@ class _FraudWarningScreenState extends State<FraudWarningScreen> {
         await dbHelper.updateTransaction(updatedTransaction);
 
         Fluttertoast.showToast(
-          msg: 'Override successful. You can now proceed.',
+          msg: '✅ Override successful! You can now proceed.',
+          backgroundColor: Colors.green,
         );
 
-        if (mounted && widget.onOverride != null) {
+        // Mark as overridden and proceed
+        setState(() {
+          _isOverridden = true;
+          _isOverriding = false;
+        });
+
+        // Call the onOverride callback if provided
+        if (widget.onOverride != null) {
           widget.onOverride!();
         }
+
+        // Navigate to PIN screen after a brief delay
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            widget.onProceed();
+          }
+        });
       } catch (e) {
-        Fluttertoast.showToast(msg: 'Override failed: $e');
-      } finally {
+        Fluttertoast.showToast(
+          msg: 'Override failed: $e',
+          backgroundColor: Colors.red,
+        );
         setState(() => _isOverriding = false);
       }
     }
   }
 
   Future<String?> _showOverrideReasonDialog() async {
+    _reasonController.clear();
     return showDialog<String>(
       context: context,
       builder:
           (context) => AlertDialog(
-            title: const Text('Override Blocked Transaction'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'This transaction was blocked by FraudGuard AI.',
-                  style: TextStyle(fontSize: 14),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Please explain why this transaction is legitimate:',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _reasonController,
-                  decoration: const InputDecoration(
-                    hintText: 'Enter your reason...',
-                    border: OutlineInputBorder(),
+            title: const Text(
+              'Override Blocked Transaction',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            content: Container(
+              width: MediaQuery.of(context).size.width * 0.8, // Wider dialog
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'This transaction was blocked by FraudGuard AI.',
+                    style: TextStyle(fontSize: 14),
                   ),
-                  maxLines: 3,
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber,
+                          color: Colors.orange,
+                          size: 20,
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Overriding a blocked transaction will mark it as reviewed. '
+                            'This action is logged for security purposes.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Please explain why this transaction is legitimate:',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _reasonController,
+                    decoration: InputDecoration(
+                      hintText: 'Enter your reason...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                    ),
+                    maxLines: 4,
+                    autofocus: true,
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, null),
-                child: const Text('Cancel'),
+                child: const Text('Cancel', style: TextStyle(fontSize: 14)),
               ),
               ElevatedButton(
-                onPressed:
-                    () => Navigator.pop(context, _reasonController.text.trim()),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                onPressed: () {
+                  final reason = _reasonController.text.trim();
+                  if (reason.isEmpty) {
+                    Fluttertoast.showToast(msg: 'Please enter a reason');
+                    return;
+                  }
+                  Navigator.pop(context, reason);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
+                ),
                 child: const Text('Override & Proceed'),
               ),
             ],
@@ -158,6 +230,37 @@ class _FraudWarningScreenState extends State<FraudWarningScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // If override was successful, return a loading screen or pop
+    if (_isOverridden) {
+      return Scaffold(
+        backgroundColor: Colors.green.shade700,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.check_circle, size: 80, color: Colors.white),
+              const SizedBox(height: 20),
+              const Text(
+                'Override Successful!',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Redirecting to payment...',
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              const SizedBox(height: 20),
+              const CircularProgressIndicator(color: Colors.white),
+            ],
+          ),
+        ),
+      );
+    }
+
     final isBlocked = widget.decision == Transaction.FRAUD_FRAUD;
     final isReview = widget.decision == Transaction.FRAUD_REVIEW;
     final riskPercent = (widget.riskScore * 100).toStringAsFixed(1);
@@ -180,7 +283,16 @@ class _FraudWarningScreenState extends State<FraudWarningScreen> {
             child: Column(
               children: [
                 if (_isOverriding)
-                  const CircularProgressIndicator(color: Colors.white)
+                  const Column(
+                    children: [
+                      CircularProgressIndicator(color: Colors.white),
+                      SizedBox(height: 16),
+                      Text(
+                        'Processing override...',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                    ],
+                  )
                 else ...[
                   Icon(
                     isBlocked ? Icons.block : Icons.warning_amber,

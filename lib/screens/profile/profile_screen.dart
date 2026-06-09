@@ -87,7 +87,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                       Text(
-                        _userPhone,
+                        _userPhone != '' ? _userPhone : _userVpa,
                         style: TextStyle(color: textSecondary, fontSize: 14),
                       ),
                       const SizedBox(height: 8),
@@ -143,19 +143,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _buildProfileTile(Icons.payment, "Payment Settings", () {}),
                 _buildProfileTile(Icons.security, "Security & Privacy", () {}),
                 _buildProfileTile(Icons.help_outline, "Help & Feedback", () {}),
-                _buildProfileTile(
-                  Icons.settings_remote,
-                  "API Configuration",
-                  () => _showApiConfigDialog(context),
-                ),
-                _buildProfileTile(Icons.code, "Update Database", () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const DebugDatabaseScreen(),
-                    ),
-                  );
-                }),
+                // _buildProfileTile(
+                //   Icons.settings_remote,
+                //   "API Configuration",
+                //   () => _showApiConfigDialog(context),
+                // ),
+                // _buildProfileTile(Icons.code, "Update Database", () {
+                //   Navigator.push(
+                //     context,
+                //     MaterialPageRoute(
+                //       builder: (context) => const DebugDatabaseScreen(),
+                //     ),
+                //   );
+                // }),
                 const SizedBox(height: 20),
                 // In ProfileScreen, update the logout button:
                 _buildProfileTile(Icons.logout, "Sign Out", () async {
@@ -270,15 +270,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: QrImageView(
-                    data: "upi://pay?pa=username@fgpay&pn=User%20Name",
+                    data:
+                        "upi://pay?pa=$_userVpa&pn=${_userName.replaceAll(' ', '%20')}",
                     size: 220,
                     version: QrVersions.auto,
                   ),
                 ),
                 const SizedBox(height: 20),
-                const Text(
-                  "username@fgpay",
-                  style: TextStyle(color: textPrimary, fontSize: 16),
+                Text(
+                  "Pay $_userName",
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  _userVpa,
+                  style: TextStyle(color: textPrimary, fontSize: 14),
                 ),
                 const SizedBox(height: 24),
                 SizedBox(

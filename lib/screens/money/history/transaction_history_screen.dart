@@ -592,7 +592,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen>
     Color statusColor = Colors.transparent;
     if (txn.isPending) {
       statusText = "Pending";
-      statusColor = Colors.orange;
+      statusColor = textSecondary;
     } else if (txn.isFailed) {
       statusText = "Failed";
       statusColor = Colors.redAccent;
@@ -632,11 +632,11 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen>
                     fontSize: 15,
                   ),
                 ),
-                if (contact?.vpa != null && contact!.vpa.isNotEmpty)
-                  Text(
-                    contact.vpa,
-                    style: const TextStyle(color: textSecondary, fontSize: 11),
-                  ),
+                // if (contact?.vpa != null && contact!.vpa.isNotEmpty)
+                //   Text(
+                //     contact.vpa,
+                //     style: const TextStyle(color: textSecondary, fontSize: 11),
+                //   ),
                 const SizedBox(height: 2),
                 Text(
                   DateFormat('dd MMM yyyy, hh:mm a').format(txn.timestamp),
@@ -649,11 +649,11 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen>
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                "${isReceived ? '+' : '-'} ₹${txn.amount.toStringAsFixed(2)}",
+                "${isReceived ? '+' : ''} ₹${txn.amount.toStringAsFixed(2)}",
                 style: TextStyle(
                   color: isReceived ? Colors.greenAccent : textPrimary,
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: 18,
                 ),
               ),
               if (statusText.isNotEmpty)
